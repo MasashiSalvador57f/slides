@@ -213,16 +213,102 @@ make abigen_all
     * メッセージを含んだハッシュ値に秘密鍵で署名
         * EIP191
         * EIP1271
-    * サーバorコントラクトで検証
-        * 検証= ecrecover
+    * サーバorコントラクトで検証(= ecrecover)
     * 実装前のお気持ち：「こんなん一瞬やろ」
     * 実際：結構大変
         * 少しでも入力が異なるとハッシュが変わる
         * Solidityのkeccakに対応するクライアント側の関数isどれ...??
         * `abi.encodePacked`なにやってるの ...
         * 型の指定が雑だとRLPエンコードの違いでハッシュが変わる
+---
+![bg 60%](images/signature_flow.png)
 
-    ---
-    ![](images/validate_signature.png)
+---
 
+![](images/signForAuth.png)
 
+---
+![](images/validate_signature.png)
+
+---
+## 参考
+* MetaMaskからsignするときは`web3.personal.sign`でないと処理が止まります（安全性の観点から、任意のメッセージに署名できる`web3.eth.sign`に非対応）
+* 署名検証 -> WebAPIへのアクセストークン発給とかやることが多そう
+* コントラクトエンドで検証するにしろ、サーバサイドでやるにしろ `nonce`は必須
+* `web3.soliditySha3`は型が指定できるので安心（型が違うとRLPエンコードが変わって死にます..）
+* `ethers.js`の場合
+```
+let sig = ethers.utils.splitSignature(flatSig);
+let recovered = await contract.verifyHash(messageHash, sig.v, sig.r, sig.s);
+utils.solidityKeccak256(types,values)
+utils.soliditySha256(types,values)
+utils.solidityPack(types,values)
+```
+
+---
+# メタトランザクション(#とは)
+* Gas代を誰かに代りに払ってもらう
+* 仕様は色々提案されている
+   * ERC1776([m0t0k1ch1さんのブログ](https://m0t0k1ch1st0ry.com/blog/2019/03/09/meta-tx/)が詳しい)
+   * [uPortのやつ](https://medium.com/uport/making-uport-smart-contracts-smarter-part-3-fixing-user-experience-with-meta-transactions-105209ed43e0)
+   * ERC865(ERC20でガスを払う)
+   * ERC1077
+* とあるプロジェクトでやりたかったこと
+    * モノを売り買いさせる（ETH払い）
+    * ガスはエンドユーザに払わせない
+    * 署名だけをクライアントで行わせる
+* できることを勘違いしたこともあり辛かった...
+
+---
+## 実装を始めたくらいのイメージ
+1. txの雛形を作る=関数, 引数をRLPエンコードする
+2. クライアントで署名（！？）
+3. 一旦サーバ(Web API)に投げる
+4. サーバ側でネットワークにブロードキャスト（署名する！？ & GASを払う）
+* 基本的には署名した人（アドレス）に該当するアカウントからガスが引かれるのでこの仕組は無理...
+* = `msg.sender` に該当する人がかならずガスを払う
+
+#### 最終的な実装
+1. クライアント側で実行したい関数と引数を指定アクセストークンと一緒にサーバへ投げつける
+2. サーバ側は誰が実行元(originalな署名者)かを明記して`tx`を作ってネットワークに送信、コントラクトでexternal callでtx実行
+
+---
+![bg](images/meta_tx1.png)
+
+---
+
+![bg 80%](images/meta_tx2.png)
+
+---
+## 勘のいいみなさまはお気づきでしょう
+
+---
+![bg 80%](images/meta_tx3.png)
+
+--- 
+## 閑話休題
+
+---
+
+![bg](images/mastering_ethereum.png)
+
+---
+
+# 罠・そして罠
+
+---
+
+## 事件簿
+* Truffleバグってる事件
+* ブロックチェーン調子悪い事件
+    * 何故か開発ノードが動かなくなる
+* Ganacheのautomineの罠
+    * 偶然動いてた事件
+* 環境変数複雑過ぎ問題
+    * サーバとかノードとか多すぎ...
+* EVM殿...
+    * stack too deep
+    * コントラクトサイズが上限超えてデプロイ不能にに
+    * mappingはkeys取れない問題 
+* Solidityむずい
+    * transferFromむずい
